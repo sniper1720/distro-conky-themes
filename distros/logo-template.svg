@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Distro Conky Themes: Logo Template
+
+  512x512 viewBox, transparent background.
+
+  The Octopus theme draws each logo with draw_image(), which clips the
+  full PNG to a circle of the display radius and strokes the ring at the
+  same radius. The 512-wide source maps to twice the display radius, so
+  the source clip radius is exactly 256.
+
+  Two plate styles, pick one per logo and delete the other. Both sit at
+  a 15px margin from the clip edge to match the original 2016 octopus
+  head geometry (measured from the archived face asset: solid head fills
+  to r~241, ring sits at 256).
+
+  A. Brand-circle plate (default, for logos with no circular emblem)
+     - Fill the dashed circle (r=241) with the distro's main brand
+       color, then place the symbolic SVG centered so the logo's edge
+       does not go outside the circle.
+     - Reads as a coin emblem: brand plate, symbol legible at a glance.
+
+  B. Square plate (only for logos already self-contained, such as the
+     reworked circular Ubuntu/Arch emblems)
+     - Icon fills a centered 482x482 box, 15px margins, matching the
+       brand disc diameter.
+     - All artwork MUST stay inside the clip circle at r=256; a 482
+       square has corners at r~341 and WILL be cut. Keep round or
+       inscribed emblems, never fill the box corners.
+
+  Usage:
+    1. Replace the <g id="distro-icon"> content with the distro SVG.
+    2. A: fill the dashed circle with the brand's main color, center
+       the symbol with its edge inside the circle. B: scale the emblem
+       into the 482x482 box inside r=256.
+    3. Export (512x512 PNG, transparent):
+       inkscape --export-type=png --export-filename=logo.png --export-width=512 logo.svg
+       or: rsvg-convert -w 512 -h 512 logo.svg -o logo.png
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="0 0 512 512"
+     width="512" height="512">
+
+  <g id="distro-icon">
+    <!-- Single guide group: center axes and the plate guide. The render
+         clip and the final ring both sit at r=256; the plate is filled
+         15px inside (r=241), see header. Follow the plate you keep,
+         delete the rest before export. -->
+    <line x1="256" y1="0" x2="256" y2="512"
+          stroke="#5294E2" stroke-width="1" opacity="0.2" />
+    <line x1="0" y1="256" x2="512" y2="256"
+          stroke="#5294E2" stroke-width="1" opacity="0.2" />
+
+    <!-- ============ A. BRAND-CIRCLE PLATE (DEFAULT) ============
+         For logos with no circular emblem. Leave unfilled: the disc
+         gets the brand's main color at export time so the tile shows
+         the guideline edge. Place the symbol centered with its edge
+         inside this circle. Delete style B below when using A. -->
+    <circle cx="256" cy="256" r="241"
+            fill="none" stroke="#5294E2" stroke-width="4"
+            stroke-dasharray="8 4" opacity="0.5" />
+    <text x="256" y="238" text-anchor="middle"
+          font-family="sans-serif" font-size="24"
+          fill="#5294E2" opacity="0.8">
+      FILL with distro PRIMARY color
+    </text>
+    <text x="256" y="270" text-anchor="middle"
+          font-family="sans-serif" font-size="24"
+          fill="#5294E2" opacity="0.8">
+      SYMBOL edge stays inside this circle
+    </text>
+
+    <!-- ============ B. SQUARE PLATE (ALTERNATIVE) ============
+         Only for logos already safe as circular emblems. Delete when
+         using plate A. All artwork must stay within r=256. -->
+    <rect x="15" y="15" width="482" height="482" rx="48"
+          fill="none" stroke="#5294E2" stroke-width="4"
+          stroke-dasharray="8 4" opacity="0.4" />
+  </g>
+
+</svg>
