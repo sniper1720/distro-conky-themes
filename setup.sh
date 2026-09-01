@@ -417,7 +417,7 @@ detect_screen_size() {
 
 install_appimage() {
     APPIMAGE_VERSION=$(resolve_latest_conky)
-    APPIMAGE_VERSION=${APPIMAGE_VERSION:-1.24.3-patched.1}
+    APPIMAGE_VERSION=${APPIMAGE_VERSION:-1.24.3-patched.3}
     APPIMAGE_ASSET="conky-x86_64-${APPIMAGE_VERSION}-release.AppImage"
     APPIMAGE_PATH="$APPIMAGE_DIR_BASE/${APPIMAGE_ASSET}"
     APPIMAGE_DIR="$APPIMAGE_DIR_BASE/conky-${APPIMAGE_VERSION}"
