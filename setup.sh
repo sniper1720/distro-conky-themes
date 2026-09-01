@@ -833,9 +833,12 @@ fi
 header "Layer"
 if [ "$CURRENT_SESSION" = "wayland" ]; then
     if [ "$IS_KDE" = true ]; then
-        sed -i "s/own_window_type = 'normal'/own_window_type = 'desktop'/" "$CONFIG_FILE"
-        sed -i "s/own_window_hints = 'undecorated,sticky,skip_taskbar,skip_pager,below'/own_window_hints = 'undecorated,sticky,skip_taskbar,skip_pager'/" "$CONFIG_FILE"
-        log "  ${GREEN}[✓]${NC} Desktop layer: desktop type (KDE Wayland)"
+        # normal layer (BOTTOM) keeps conky above the wallpaper on KDE Wayland;
+        # a 'desktop' namespace makes KWin classify it as a desktop window so it
+        # still persists through Show Desktop. Revert to type='desktop' (old
+        # behavior) if kwin's namespace handling changes.
+        sed -i "s/own_window_namespace = 'normal'/own_window_namespace = 'desktop'/" "$CONFIG_FILE"
+        log "  ${GREEN}[✓]${NC} Desktop layer: desktop namespace on normal layer (KDE Wayland)"
     else
         log "  ${GREEN}[✓]${NC} Desktop layer: normal + below (BOTTOM layer)"
     fi
