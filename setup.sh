@@ -177,26 +177,35 @@ install_packages() {
     fi
 }
 
-# Conky version check: 0 = >= 1.24.3, 1 = >= 1.23.0 but < 1.24.3, 2 = < 1.23.0 or unknown
+# Minimum Conky version these themes support. The themes rely on settings that
+# only exist from 1.25.0 onwards: own_window_namespace, own_window_hints
+# driving the layer-shell role, and the session-based output backend
+# heuristic. 1.25.1 additionally fixes a startup crash in font setup that
+# these themes hit on every launch, so that patch level is the real floor.
+MINIMUM_CONKY_VERSION="1.25.1"
+
+# Extract the version from captured `conky --version` output. A banner can be
+# preceded by session-detection log lines on stderr, so anchor on the line that
+# names conky instead of assuming the version comes first.
+parse_conky_version() {
+    printf '%s\n' "$1" \
+        | grep -oE 'conky [0-9]+\.[0-9]+\.[0-9]+' \
+        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' \
+        | head -1
+}
+
+# Conky version check: 0 = >= $MINIMUM_CONKY_VERSION, 1 = installed but older,
+# 2 = not installed or unparseable
 check_conky_version() {
-    CONKY_VERSION=$(conky --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    CONKY_VERSION=$(parse_conky_version "$(conky --version 2>/dev/null)")
     if [ -z "$CONKY_VERSION" ]; then
         CONKY_VERSION="unknown"
         return 2
     fi
-    local major minor patch
-    major=$(echo "$CONKY_VERSION" | cut -d. -f1)
-    minor=$(echo "$CONKY_VERSION" | cut -d. -f2)
-    patch=$(echo "$CONKY_VERSION" | cut -d. -f3)
-    patch=${patch:-0}
-    if [ "$major" -gt 1 ] || { [ "$major" -eq 1 ] && [ "$minor" -ge 23 ]; }; then
-        if [ "$major" -gt 1 ] || { [ "$major" -eq 1 ] && [ "$minor" -gt 24 ]; } \
-            || { [ "$major" -eq 1 ] && [ "$minor" -eq 24 ] && [ "$patch" -ge 3 ]; }; then
-            return 0
-        fi
-        return 1
+    if version_gte "$CONKY_VERSION" "$MINIMUM_CONKY_VERSION"; then
+        return 0
     fi
-    return 2
+    return 1
 }
 
 # Compare two version strings: returns 0 if $1 >= $2
@@ -237,11 +246,31 @@ query_repo_conky_version() {
 # Conky AppImage support
 APPIMAGE_DIR_BASE="$HOME/.local/share/conky"
 
+# Upstream release repo. Conky 1.25.0 merged the wlr-layer-shell
+# own_window_namespace setting and the SHM buffer guard these themes depend on,
+# so the themes install the official upstream AppImage rather than a patched
+# build of our own.
+CONKY_UPSTREAM_REPO="brndnmtthws/conky"
+
+# Build baseline of the AppImage asset to install. Upstream publishes one
+# asset per build container, and they differ only in the glibc they need:
+#   22.04 -> glibc 2.34, built with clang 15
+#   24.04 -> glibc 2.38, built with clang 18
+# The 22.04 asset runs on the widest range of distributions, so it is the
+# default. Switch to 24.04 only if you would rather require a newer glibc.
+APPIMAGE_BUILD_BASELINE="22.04"
+
+# glibc floor required by the AppImage built on $APPIMAGE_BUILD_BASELINE,
+# measured from the symbol versions the binary actually imports. Kept next to
+# the baseline so the two cannot drift apart when it is changed.
+APPIMAGE_MINIMUM_GLIBC="2.34"
+
+# Resolve the newest upstream release tag, e.g. v1.25.1.
 resolve_latest_conky() {
     curl -fsSL --max-time 15 \
-        "https://api.github.com/repos/sniper1720/conky/releases/latest" 2>/dev/null \
-        | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"v[0-9]+\.[0-9]+\.[0-9]+(-patched\.[0-9]+)?"' \
-        | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+(-patched\.[0-9]+)?' \
+        "https://api.github.com/repos/${CONKY_UPSTREAM_REPO}/releases/latest" 2>/dev/null \
+        | grep -oE '"tag_name"[[:space:]]*:[[:space:]]*"v[0-9]+\.[0-9]+\.[0-9]+"' \
+        | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' \
         | head -1 || true
 }
 
@@ -256,7 +285,13 @@ glibc_version_ok() {
     local glibc_version
     glibc_version=$(ldd --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
     [ -n "$glibc_version" ] || return 1
-    awk -v version="$glibc_version" 'BEGIN { split(version, part, "."); exit (part[1] < 2 || (part[1] == 2 && part[2] < 35)) }'
+    awk -v version="$glibc_version" -v required="$APPIMAGE_MINIMUM_GLIBC" \
+        'BEGIN {
+            split(version, have, ".")
+            split(required, need, ".")
+            if (have[1] != need[1]) { exit (have[1] < need[1]) }
+            exit (have[2] < need[2])
+        }'
 }
 
 appimage_supported() {
@@ -269,7 +304,7 @@ appimage_supported() {
         return 1
     fi
     if ! glibc_version_ok; then
-        log "  ${RED}[✗] glibc 2.35+ required${NC}"
+        log "  ${RED}[✗] glibc $APPIMAGE_MINIMUM_GLIBC+ required (the $APPIMAGE_BUILD_BASELINE build)${NC}"
         return 1
     fi
     if ! command -v sha256sum &> /dev/null; then
@@ -416,13 +451,19 @@ detect_screen_size() {
 }
 
 install_appimage() {
+    # Prefer the newest upstream release, but never fall back to a build older
+    # than the themes can actually run on.
     APPIMAGE_VERSION=$(resolve_latest_conky)
-    APPIMAGE_VERSION=${APPIMAGE_VERSION:-1.24.3-patched.3}
-    APPIMAGE_ASSET="conky-x86_64-${APPIMAGE_VERSION}-release.AppImage"
+    if [ -z "$APPIMAGE_VERSION" ] || ! version_gte "${APPIMAGE_VERSION#v}" "$MINIMUM_CONKY_VERSION"; then
+        APPIMAGE_VERSION="v$MINIMUM_CONKY_VERSION"
+    fi
+    # Upstream names assets after the container they were built in, e.g.
+    # conky-ubuntu-22.04-x86_64-v1.25.1-release.AppImage
+    APPIMAGE_ASSET="conky-ubuntu-${APPIMAGE_BUILD_BASELINE}-x86_64-${APPIMAGE_VERSION}-release.AppImage"
     APPIMAGE_PATH="$APPIMAGE_DIR_BASE/${APPIMAGE_ASSET}"
     APPIMAGE_DIR="$APPIMAGE_DIR_BASE/conky-${APPIMAGE_VERSION}"
     APPIMAGE_APPDIR="$APPIMAGE_DIR/squashfs-root"
-    APPIMAGE_URL="https://github.com/sniper1720/conky/releases/download/${APPIMAGE_VERSION}/${APPIMAGE_ASSET}"
+    APPIMAGE_URL="https://github.com/${CONKY_UPSTREAM_REPO}/releases/download/${APPIMAGE_VERSION}/${APPIMAGE_ASSET}"
 
     mkdir -p "$APPIMAGE_DIR_BASE"
 
@@ -481,8 +522,15 @@ install_appimage() {
     if ! echo "$appimage_features" | grep -qi "Wayland"; then
         log "  ${YELLOW}[!] No Wayland support (needs XWayland)${NC}"
     fi
+    # Guard against an upstream release that drops a setting the themes rely on.
+    local binary_version
+    binary_version=$(parse_conky_version "$appimage_features")
+    if [ -z "$binary_version" ] || ! version_gte "$binary_version" "$MINIMUM_CONKY_VERSION"; then
+        log "  ${RED}[✗] AppImage reports ${binary_version:-unknown}, need $MINIMUM_CONKY_VERSION or newer${NC}"
+        return 1
+    fi
 
-    log "  ${GREEN}[✓]${NC} AppImage $APPIMAGE_VERSION ready"
+    log "  ${GREEN}[✓]${NC} AppImage $binary_version ($APPIMAGE_BUILD_BASELINE build) ready"
     return 0
 }
 
@@ -516,14 +564,14 @@ reuse_installed_appimage() {
     [ -n "$APPIMAGE_VERSION" ] || return 1
     [ -x "$APPIMAGE_APPDIR/AppRun" ] || return 1
     [ -f "$APPIMAGE_PATH" ] || return 1
-    local features version major minor
+    local features version
     features=$("$APPIMAGE_APPDIR/AppRun" --version 2>&1) || return 1
     echo "$features" | grep -qi "conky" || return 1
-    version=$(echo "$features" | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+    version=$(parse_conky_version "$features")
     [ -n "$version" ] || return 1
-    major=$(echo "$version" | cut -d. -f1)
-    minor=$(echo "$version" | cut -d. -f2)
-    [ "$major" -gt 1 ] || { [ "$major" -eq 1 ] && [ "$minor" -ge 23 ]; } || return 1
+    # Anything older than the minimum, including the retired patched builds,
+    # is treated as absent so a fresh upstream AppImage gets installed.
+    version_gte "$version" "$MINIMUM_CONKY_VERSION" || return 1
     for feature in Lua Cairo X11; do
         echo "$features" | grep -qi "$feature" || return 1
     done
@@ -547,7 +595,7 @@ offer_appimage() {
         log "  ${YELLOW}[!]${NC} $reason"
         log
     fi
-    log "  A patched AppImage gives you the fixed Conky without touching your system packages."
+    log "  The official Conky AppImage gives you a supported Conky without touching your system packages."
     local reply
     read -p "  Download now? [y/N] " -r reply < /dev/tty
     log
@@ -636,7 +684,7 @@ IS_KDE=false
 if [ "$CURRENT_SESSION" == "wayland" ] && [ "$IS_KDE" = true ]; then
     log "  ${CYAN}$CURRENT_SESSION${NC}: KDE Plasma Wayland"
 elif [ "$CURRENT_SESSION" == "wayland" ] && [[ "$XDG_CURRENT_DESKTOP" == *GNOME* ]]; then
-    log "  ${CYAN}$CURRENT_SESSION${NC}: GNOME (always-below window; see README for mutter-layer-shell)"
+    log "  ${CYAN}$CURRENT_SESSION${NC}: GNOME (regular window; see README)"
 else
     log "  ${CYAN}$CURRENT_SESSION${NC}: native"
 fi
@@ -699,7 +747,7 @@ else
     REPO_CONKY_VERSION=$(query_repo_conky_version || true)
 
     if [ -n "$REPO_CONKY_VERSION" ]; then
-        if version_gte "$REPO_CONKY_VERSION" "1.24.3"; then
+        if version_gte "$REPO_CONKY_VERSION" "$MINIMUM_CONKY_VERSION"; then
             log "  ${GREEN}[✓]${NC} $REPO_CONKY_VERSION available in repo"
             INSTALL_CMD=$(conky_install_command)
             if [ -n "$INSTALL_CMD" ]; then
@@ -718,10 +766,8 @@ else
                 log "  ${YELLOW}Skipped, using AppImage.${NC}"
                 ensure_appimage || offer_appimage "System Conky install skipped" || { log "${RED}No usable Conky found. Aborting.${NC}"; exit 1; }
             fi
-        elif version_gte "$REPO_CONKY_VERSION" "1.23.0"; then
-            ensure_appimage || offer_appimage "Repo Conky $REPO_CONKY_VERSION has known Wayland bugs (fixed in 1.24.3)" || log "  ${YELLOW}[!]${NC} Continuing with system Conky $CONKY_VERSION.${NC}"
         else
-            ensure_appimage || offer_appimage "Repo Conky $REPO_CONKY_VERSION is too old for these themes (need ≥ 1.23.0)" || { log "${RED}No usable Conky found. Aborting.${NC}"; exit 1; }
+            ensure_appimage || offer_appimage "Repo Conky $REPO_CONKY_VERSION is older than these themes need (need >= $MINIMUM_CONKY_VERSION)" || { log "${RED}No usable Conky found. Aborting.${NC}"; exit 1; }
         fi
     else
         ensure_appimage || offer_appimage "Could not query the repo Conky version" || { log "${RED}No usable Conky found. Aborting.${NC}"; exit 1; }

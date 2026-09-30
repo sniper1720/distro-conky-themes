@@ -62,9 +62,9 @@ A clean, minimalist system monitor designed for both native Wayland compositors 
 > [!IMPORTANT]
 > **Requirements**
 >
-> Conky **1.23.0 or newer** is required (`conky_surface()` API for Octopus). The installer fetches a [patched AppImage](https://github.com/sniper1720/conky/releases) with the latest stability and Wayland fixes. Wayland needs `wlr-layer-shell` (Sway, Hyprland, KDE Plasma); GNOME runs as a normal window ([mutter-layer-shell](https://github.com/Caellian/mutter-layer-shell) for desktop-layer placement).
+> Conky **1.25.1 or newer** is required. The themes rely on `own_window_namespace` ([#2435](https://github.com/brndnmtthws/conky/pull/2435)) and on `own_window_hints` driving the layer-shell role, both of which arrived in [Conky 1.25.0](https://github.com/brndnmtthws/conky/releases/tag/v1.25.0). Where the required version is not available as a system package, the installer fetches the [official upstream AppImage](https://github.com/brndnmtthws/conky/releases).
 >
-> **Noteworthy**: the latest official Conky (1.24.2) has known Wayland issues: desktop-layer placement is broken on KDE Plasma and the binary can crash on exit. The installer fetches a [patched AppImage](https://github.com/sniper1720/conky/releases) built from this project's conky fork, which includes the fixes from upstream PRs [#2431](https://github.com/brndnmtthws/conky/issues/2431) and [#2432](https://github.com/brndnmtthws/conky/pull/2432). This is temporary until those merge.
+> On Wayland the themes place themselves through wlr-layer-shell, which Sway, Hyprland, and KDE Plasma implement. GNOME does not implement it, so Conky opens as a regular window there.
 
 ### Quick Start
 
